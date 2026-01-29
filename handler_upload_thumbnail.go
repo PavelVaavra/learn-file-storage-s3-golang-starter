@@ -1,10 +1,12 @@
 package main
 
 import (
-	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/google/uuid"
@@ -46,12 +48,7 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	}
 	defer file.Close()
 	contentType := header.Header.Get("Content-Type")
-
-	// Read all the image data into a byte slice using io.ReadAll
-	data, err := io.ReadAll(file)
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Error reading file", err)
-	}
+	fileExtension := strings.Split(contentType, "/")[1]
 
 	// Get the video's metadata from the SQLite database. The apiConfig's db has a GetVideo method you can use
 	// If the authenticated user is not the video owner, return a http.StatusUnauthorized response
@@ -70,13 +67,28 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	url := fmt.Sprintf("http://localhost:%v/api/thumbnails/%v", cfg.port, videoID)
 	video.ThumbnailURL = &url
 
-	// Use base64.StdEncoding.EncodeToString from the encoding/base64 package to convert the image data to a base64 string.
-	// Create a data URL with the media type and base64 encoded image data. The format is:
-	// data:<media-type>;base64,<data>
-	// Store the URL in the thumbnail_url column in the database.
-	imageDataStr := base64.StdEncoding.EncodeToString(data)
-	dataUrl := fmt.Sprintf("data:%v;base64,%v", contentType, imageDataStr)
-	video.ThumbnailURL = &dataUrl
+	// Instead of encoding to base64, update the handler to save the bytes to a file at the path /assets/<videoID>.<file_extension>.
+	// 	Use the Content-Type header to determine the file extension.
+	// 	Use the videoID to create a unique file path. filepath.Join and cfg.assetsRoot will be helpful here.
+	// 	Use os.Create to create the new file
+	// 	Copy the contents from the multipart.File to the new file on disk using io.Copy
+
+	thumbnailName := fmt.Sprintf("%v.%v", videoID, fileExtension)
+	thumbnailPath := filepath.Join(cfg.assetsRoot, thumbnailName)
+	thumbnailFile, err := os.Create(thumbnailPath)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't create a thumbnail file", err)
+		return
+	}
+	defer thumbnailFile.Close()
+	_, err = io.Copy(thumbnailFile, file)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't copy to a thumbnail file", err)
+		return
+	}
+
+	thumbnailUrl := fmt.Sprintf("http://localhost:%v/%v", cfg.port, thumbnailPath)
+	video.ThumbnailURL = &thumbnailUrl
 
 	err = cfg.db.UpdateVideo(video)
 	if err != nil {
