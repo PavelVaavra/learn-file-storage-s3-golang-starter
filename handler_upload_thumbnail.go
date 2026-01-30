@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"mime"
@@ -83,8 +85,12 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	// 	Use os.Create to create the new file
 	// 	Copy the contents from the multipart.File to the new file on disk using io.Copy
 
-	thumbnailName := fmt.Sprintf("%v.%v", videoID, fileExtension)
-	thumbnailPath := filepath.Join(cfg.assetsRoot, thumbnailName)
+	key := make([]byte, 32)
+	rand.Read(key)
+	thumbnailName := base64.RawURLEncoding.EncodeToString(key)
+
+	thumbnailNameWithExtension := fmt.Sprintf("%v.%v", thumbnailName, fileExtension)
+	thumbnailPath := filepath.Join(cfg.assetsRoot, thumbnailNameWithExtension)
 	thumbnailFile, err := os.Create(thumbnailPath)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't create a thumbnail file", err)
