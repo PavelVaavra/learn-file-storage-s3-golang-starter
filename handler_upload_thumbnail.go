@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -48,6 +49,15 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	}
 	defer file.Close()
 	contentType := header.Header.Get("Content-Type")
+	mediatype, _, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Unable to parse media type", err)
+		return
+	}
+	if mediatype != "image/jpeg" && mediatype != "image/png" {
+		respondWithError(w, http.StatusBadRequest, "Only jpeg or png can uploaded as thumbnails", err)
+		return
+	}
 	fileExtension := strings.Split(contentType, "/")[1]
 
 	// Get the video's metadata from the SQLite database. The apiConfig's db has a GetVideo method you can use
