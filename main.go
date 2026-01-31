@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
 
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/database"
 
 	"github.com/joho/godotenv"
@@ -21,6 +24,7 @@ type apiConfig struct {
 	s3Region         string
 	s3CfDistribution string
 	port             string
+	s3Client         *s3.Client
 }
 
 func main() {
@@ -76,6 +80,18 @@ func main() {
 		log.Fatal("PORT environment variable is not set")
 	}
 
+	// Use config.LoadDefaultConfig to auto load the default AWS SDK config (the keys you set with aws configure)
+	// 	As arguments, give it an empty Context and pass config.WithRegion(s3Region) to use the region that's set in your .env file.
+	// Create a client with your config using s3.NewFromConfig
+	// Assign the client to the s3Client field
+	// Update the S3_BUCKET and S3_REGION variables in your .env file. They'll be saved into your apiConfig.
+	defaultAwsConfig, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(s3Region))
+	if err != nil {
+		log.Fatalf("Cannot load the default AWS SDK config: %v", err)
+	}
+
+	client := s3.NewFromConfig(defaultAwsConfig)
+
 	cfg := apiConfig{
 		db:               db,
 		jwtSecret:        jwtSecret,
@@ -86,6 +102,7 @@ func main() {
 		s3Region:         s3Region,
 		s3CfDistribution: s3CfDistribution,
 		port:             port,
+		s3Client:         client,
 	}
 
 	err = cfg.ensureAssetsDir()
