@@ -8,6 +8,7 @@ import (
 	"mime"
 	"net/http"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -90,20 +91,35 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	defer os.Remove(tempFile.Name())
-	defer file.Close()
+	defer tempFile.Close()
 	_, err = io.Copy(tempFile, file)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't copy to a temporary file", err)
 		return
 	}
-	aspectRatio, err := getVideoAspectRatio(tempFile.Name())
 
-	// Reset the tempFile's file pointer to the beginning with .Seek(0, io.SeekStart) - this will allow us to read the file again from the beginning
-	_, err = tempFile.Seek(0, io.SeekStart)
+	processedFilePath, err := processVideoForFastStart(tempFile.Name())
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Could not reset the tempFile's file pointer to the beginning", err)
+		respondWithError(w, http.StatusInternalServerError, "Couldn't process video for fast start", err)
 		return
 	}
+
+	tempFileProcessed, err := os.Open(processedFilePath)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't open processed video file", err)
+		return
+	}
+	defer os.Remove(tempFileProcessed.Name())
+	defer tempFileProcessed.Close()
+
+	aspectRatio, err := getVideoAspectRatio(tempFileProcessed.Name())
+
+	// Reset the tempFile's file pointer to the beginning with .Seek(0, io.SeekStart) - this will allow us to read the file again from the beginning
+	// _, err = tempFile.Seek(0, io.SeekStart)
+	// if err != nil {
+	// 	respondWithError(w, http.StatusInternalServerError, "Could not reset the tempFile's file pointer to the beginning", err)
+	// 	return
+	// }
 
 	// Put the object into S3 using PutObject. You'll need to provide:
 	// The bucket name
@@ -118,7 +134,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	_, err = cfg.s3Client.PutObject(r.Context(), &s3.PutObjectInput{
 		Bucket:      aws.String(cfg.s3Bucket),
 		Key:         aws.String(s3VideoNameWithExtension),
-		Body:        tempFile,
+		Body:        tempFileProcessed,
 		ContentType: aws.String(mediatype),
 	})
 	if err != nil {
@@ -142,4 +158,22 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	// The video is correctly uploaded to your S3 bucket.
 	// The video_url in your database is updated with the S3 bucket and key (and thus shows up in the web UI)
 
+}
+
+func processVideoForFastStart(filePath string) (string, error) {
+	// Create a new string for the output file path. I just appended .processing to the input file (which should be the path to the temp file on disk)
+	// Create a new exec.Cmd using exec.Command
+	// The command is ffmpeg and the arguments are -i, the input file path, -c, copy, -movflags, faststart, -f, mp4 and the output file path.
+	// Run the command
+	// Return the output file path
+	outputFilePath := fmt.Sprintf("%v.processing", filePath)
+
+	cmd := exec.Command("ffmpeg", "-i", filePath, "-c", "copy", "-movflags", "faststart", "-f", "mp4", outputFilePath)
+
+	err := cmd.Run()
+	if err != nil {
+		return "", err
+	}
+
+	return outputFilePath, nil
 }
