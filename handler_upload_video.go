@@ -96,6 +96,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "Couldn't copy to a temporary file", err)
 		return
 	}
+	aspectRatio, err := getVideoAspectRatio(tempFile.Name())
 
 	// Reset the tempFile's file pointer to the beginning with .Seek(0, io.SeekStart) - this will allow us to read the file again from the beginning
 	_, err = tempFile.Seek(0, io.SeekStart)
@@ -112,7 +113,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	key := make([]byte, 32)
 	rand.Read(key)
 	s3VideoName := base64.RawURLEncoding.EncodeToString(key)
-	s3VideoNameWithExtension := fmt.Sprintf("%v.%v", s3VideoName, videoExtension)
+	s3VideoNameWithExtension := fmt.Sprintf("%v/%v.%v", aspectRatio, s3VideoName, videoExtension)
 
 	_, err = cfg.s3Client.PutObject(r.Context(), &s3.PutObjectInput{
 		Bucket:      aws.String(cfg.s3Bucket),
